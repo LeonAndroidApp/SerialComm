@@ -32,6 +32,10 @@
 
 import javax.comm.*;
 
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpServer;
+
 import java.io.*;
 import java.awt.*;
 import java.awt.event.*;
@@ -40,8 +44,17 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.FileNotFoundException;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Enumeration;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.Map.Entry;
 
 /**
  * Main file for SerialDemo program. This program illustrates many of the
@@ -82,9 +95,22 @@ public class SerialDemo extends Frame implements ActionListener {
 
 	private ConfigurationPanel configurationPanel;
 	private SerialParameters parameters;
-	private SerialConnection connection;
+	private static SerialConnection connection;
+	
+	private HttpServer server;
 	
 	Font myFont = new Font("Serif", Font.PLAIN, 22);
+    
+	 //HTTP receive map list initialize 
+	static ArrayList<String> receiveTime= new ArrayList<String>();
+	static ArrayList<String> receiveSpeed= new ArrayList<String>();
+	//collection for sort
+	static ArrayList<String> sortTime = new ArrayList<String>();
+	static ArrayList<String> sortSpeed = new ArrayList<String>();
+//	static Map<String,String> sortdata = new TreeMap<String,String>();
+	static Map<Integer,Integer> sortdata = new TreeMap<Integer,Integer>();
+	
+	
 	private Properties props = null;
 	int stoptime;
 	/**
@@ -93,7 +119,6 @@ public class SerialDemo extends Frame implements ActionListener {
 	 * exit, otherwise create a new <code>SerialDemo</code> and set it visible.
 	 */
 	public static void main(String[] args) {
-
 		
 		LibraryUtility.libraryInstall();
 		if ((args.length > 0)
@@ -213,15 +238,20 @@ public class SerialDemo extends Frame implements ActionListener {
 		breakButton.addActionListener(this);
 		buttonPanel.add(breakButton);
 
-//		plotButton = new Button("Start");
-//		plotButton.addActionListener(this);
-//		plotButton.setEnabled(false);
-//		buttonPanel.add(plotButton);
-//		
-//		StopButton = new Button("Stop");
-//		StopButton.addActionListener(this);
-//		StopButton.setEnabled(false);
-//		buttonPanel.add(StopButton);
+		plotButton = new Button("Start");
+
+		plotButton.setFont(myFont);
+		plotButton.addActionListener(this);
+		plotButton.setEnabled(false);
+		buttonPanel.add(plotButton);
+		
+		StopButton = new Button("Stop");
+
+
+		StopButton.setFont(myFont);
+		StopButton.addActionListener(this);
+		StopButton.setEnabled(false);
+		buttonPanel.add(StopButton);
 
 		Panel southPanel = new Panel();
 
@@ -246,6 +276,7 @@ public class SerialDemo extends Frame implements ActionListener {
 			    messageAreaOutT1,
 			    messageAreaOutT2,
 				messageAreaIn);
+
 		setConfigurationPanel();
 
 		Dimension screenSize = Toolkit.getDefaultToolkit().getScreenSize();
@@ -254,6 +285,8 @@ public class SerialDemo extends Frame implements ActionListener {
 				- HEIGHT / 2);
 
 		setSize(WIDTH, HEIGHT);
+		
+
 	}
 
 	/**
@@ -333,6 +366,23 @@ public class SerialDemo extends Frame implements ActionListener {
 				setNewCursor(previousCursor);
 				return;
 			}
+			//run http server
+			  
+			   try{ 
+				server = HttpServer.create(new InetSocketAddress(8000), 0);
+			    server.createContext("/info", new InfoHandler());
+			    server.createContext("/get", new GetHandler());
+			    server.setExecutor(null); // creates a default executor
+			    server.start();
+			    System.out.println("The server is running");
+			   }
+			   catch(Exception ee1)
+			   {
+				   		   
+			   }
+			
+			
+			
 			portOpened();
 			setNewCursor(previousCursor);
 		}
@@ -340,13 +390,16 @@ public class SerialDemo extends Frame implements ActionListener {
 		// Closes a port.
 		if (cmd.equals("Close Port")) {
 			portClosed();
+
+		    server.stop(0);
+		    System.out.println("The server is closed");
 		}
 
 		// Sends a break signal to the port.
 		if (cmd.equals("Send Cmd")) {
 			connection.sendBreak();
 
-			//plotButton.setEnabled(true);
+			plotButton.setEnabled(true);
 			//breakButton.setEnabled(false);
 			messageAreaOut.setText("*");
 			messageAreaOut.setText("");
@@ -670,7 +723,8 @@ public class SerialDemo extends Frame implements ActionListener {
 
 			stationIDChoice = new Choice();
 			stationIDChoice.setFont(myFont);
-			stationIDChoice.setFont(myFont);
+
+			stationIDChoice.addItem("0");
 			stationIDChoice.addItem("1");
 			stationIDChoice.addItem("2");
 			stationIDChoice.addItem("3");
@@ -807,4 +861,149 @@ public class SerialDemo extends Frame implements ActionListener {
 			sd.shutdown();
 		}
 	}
+	
+	
+
+	public static void writeResponse(HttpExchange httpExchange, String response) throws IOException {
+	  httpExchange.sendResponseHeaders(200, response.length());
+	  OutputStream os = httpExchange.getResponseBody();
+	  os.write(response.getBytes());
+	  os.close();
+	}
+
+
+	/**
+	 * returns the url parameters in a map
+	 * @param query
+	 * @return map
+	 */
+	public static Map<String, String> queryToMap(String query){
+	  Map<String, String> result = new HashMap<String, String>();
+	  for (String param : query.split("&")) {
+	      String pair[] = param.split("=");
+	      if (pair.length>1) {
+	          result.put(pair[0], pair[1]);
+	      }else{
+	          result.put(pair[0], "");
+	      }
+	  }
+	  return result;
+	}
+	
+	//Http Server
+
+		// http://localhost:8000/info
+		static class InfoHandler implements HttpHandler {
+		  public void handle(HttpExchange httpExchange) throws IOException {
+		    String response = "Use /get?hello=word&foo=bar to see how to handle url parameters";
+		    writeResponse(httpExchange, response.toString());
+		  }
+		}
+
+		static class GetHandler implements HttpHandler {
+		  public void handle(HttpExchange httpExchange) throws IOException {
+		    StringBuilder response = new StringBuilder();
+		    Map <String,String>parms = queryToMap(httpExchange.getRequestURI().getQuery());
+			
+			
+			//determine http receive parm
+			if(parms.get("PW").equals("1*")){
+			response.append("Account Correct!");
+			}
+			else{
+			response.append("Account Wrong!!");
+			}
+			
+			
+			if(parms.get("PW").equals("time")){
+				System.out.println("set Time: " +parms.get("min"));
+				receiveTime.add(parms.get("min"));
+				try{
+
+				}
+				
+				catch(Exception e10){
+					System.out.println("Time setting error. Emergency Stop motor...");
+				}
+				}
+			
+			if(parms.get("PW").equals("start")){
+				System.out.println("No. "+receiveTime.size());
+//				for(int i=0;i<receiveTime.size();i++){
+//					sortdata.put(receiveTime.get(i), receiveSpeed.get(i));
+//				}
+				
+				for(int i=0;i<receiveTime.size();i++){
+					sortdata.put(Integer.valueOf(receiveTime.get(i)), Integer.valueOf(receiveSpeed.get(i)));
+				}
+				System.out.println("data(sort by treemap) : " + sortdata.toString());
+//				Set<Map.Entry<String, String>> entry = sortdata.entrySet();
+//				for(Map.Entry<String, String> e : entry) {
+//				//System.out.println("key:"+e.getKey()+" value:"+e.getValue());
+//				sortTime.add(e.getKey());
+//				sortSpeed.add(e.getValue());		
+//				}
+				
+				for(Entry<Integer, Integer> e : sortdata.entrySet()) {
+					//System.out.println("key:"+e.getKey()+" value:"+e.getValue());
+					sortTime.add(e.getKey().toString());
+					sortSpeed.add(e.getValue().toString());		
+					}
+				
+				
+		        for (int i = 0; i<receiveTime.size(); i++) {
+//			        System.out.println("Time: "+receiveTime.get(i)+", Speed:"+receiveSpeed.get(i));
+//					connection.sendtime(i,receiveTime.get(i),receiveSpeed.get(i));
+//					connection.sendspeed(i,receiveTime.get(i),receiveSpeed.get(i));
+					//send sort time and speed
+			        System.out.println("Time: "+sortTime.get(i)+", Speed:"+sortSpeed.get(i));
+					connection.sendtime(i,sortTime.get(i),sortSpeed.get(i));
+					connection.sendspeed(i,sortTime.get(i),sortSpeed.get(i));
+					
+					
+		        }
+			response.append("start");
+			System.out.println("Start run motor...");
+			connection.sendStart();
+			sortTime.clear();
+			sortSpeed.clear();
+			receiveTime.clear();
+			receiveSpeed.clear();
+			sortdata.clear();
+//			receiveTime = new ArrayList<String>();
+//			receiveSpeed = new ArrayList<String>();
+			
+			}
+			if(parms.get("PW").equals("stop")){
+			response.append("stop");
+			System.out.println("Stop motor...");
+			connection.sendStop();
+			writeResponse(httpExchange, response.toString());
+			connection.sendZero();
+			}
+			
+			if(parms.get("PW").equals("rpm")){
+			System.out.println("set speed: " +parms.get("speed"));
+			receiveSpeed.add(parms.get("speed"));
+			try{
+//				if( Integer.valueOf(parms.get("speed"))<3000&& Integer.valueOf(parms.get("speed"))>=0){
+//					connection.sendspeed(parms.get("speed"));
+//				}
+//			else{
+//				connection.sendspeed(parms.get("0"));
+//				System.out.println("Emergency Stop motor...");
+//				}
+			}
+			
+			catch(Exception e9){
+				System.out.println("Speed value error. Emergency Stop motor...");
+			}
+			}
+			
+			
+		  writeResponse(httpExchange, response.toString());
+		  }
+		}
 }
+
+

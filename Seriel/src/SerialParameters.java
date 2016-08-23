@@ -108,6 +108,9 @@ public class SerialParameters {
     @param StationID.
     */
     public void setStationIDString(String stationID) {
+    	if (stationID.equals("0")) {
+    		this.stationID = 0x00;
+    	}
     	if (stationID.equals("1")) {
     		this.stationID = 0x01;
     	}
